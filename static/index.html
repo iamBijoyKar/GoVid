@@ -7,22 +7,220 @@
       body {
         background-color: #121212;
         color: #eee;
-        font-family: sans-serif;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         text-align: center;
-        padding-top: 50px;
+        padding: 20px;
+        margin: 0;
+      }
+      .container {
+        max-width: 800px;
+        margin: 0 auto;
+        padding: 20px;
+      }
+      h1 {
+        color: #4CAF50;
+        margin-bottom: 30px;
+      }
+      .upload-section {
+        background: #1e1e1e;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 30px;
+        border: 2px dashed #4CAF50;
+      }
+      .upload-form {
+        display: flex;
+        flex-direction: column;
+        gap: 15px;
+        align-items: center;
+      }
+      .file-input {
+        background: #333;
+        color: #eee;
+        padding: 10px;
+        border: 1px solid #4CAF50;
+        border-radius: 5px;
+        cursor: pointer;
+      }
+      .upload-btn {
+        background: #4CAF50;
+        color: white;
+        padding: 12px 24px;
+        border: none;
+        border-radius: 5px;
+        cursor: pointer;
+        font-size: 16px;
+        transition: background 0.3s;
+      }
+      .upload-btn:hover {
+        background: #45a049;
+      }
+      .upload-btn:disabled {
+        background: #666;
+        cursor: not-allowed;
+      }
+      .video-section {
+        background: #1e1e1e;
+        padding: 20px;
+        border-radius: 10px;
+        margin-bottom: 20px;
+      }
+      .video-selector {
+        margin-bottom: 20px;
+      }
+      select {
+        background: #333;
+        color: #eee;
+        padding: 10px;
+        border: 1px solid #4CAF50;
+        border-radius: 5px;
+        font-size: 16px;
+        min-width: 200px;
       }
       video {
-        width: 80%;
+        width: 100%;
         max-width: 720px;
         border-radius: 8px;
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      }
+      .status {
+        margin-top: 10px;
+        padding: 10px;
+        border-radius: 5px;
+        font-weight: bold;
+      }
+      .success {
+        background: #4CAF50;
+        color: white;
+      }
+      .error {
+        background: #f44336;
+        color: white;
+      }
+      .loading {
+        background: #2196F3;
+        color: white;
       }
     </style>
   </head>
   <body>
-    <h1>🎬 Streamed via Go</h1>
-    <video controls>
-      <source src="/video" type="video/mp4" />
-      Your browser does not support HTML5 video.
-    </video>
+    <div class="container">
+      <h1>🎬 Go Video Streamer</h1>
+      
+      <!-- Upload Section -->
+      <div class="upload-section">
+        <h2>📤 Upload Video</h2>
+        <form class="upload-form" id="uploadForm">
+          <input type="file" class="file-input" id="videoFile" name="video" accept="video/*" required>
+          <button type="submit" class="upload-btn" id="uploadBtn">Upload Video</button>
+        </form>
+        <div id="uploadStatus"></div>
+      </div>
+
+      <!-- Video Player Section -->
+      <div class="video-section">
+        <h2>🎥 Watch Videos</h2>
+        <div class="video-selector">
+          <label for="videoSelect">Select Video:</label><br>
+          <select id="videoSelect">
+            <option value="">Loading videos...</option>
+          </select>
+        </div>
+        <video controls id="videoPlayer">
+          <source src="" type="video/mp4" />
+          Your browser does not support HTML5 video.
+        </video>
+      </div>
+    </div>
+
+    <script>
+      // Load available videos
+      async function loadVideos() {
+        try {
+          const response = await fetch('/videos');
+          const data = await response.json();
+          const select = document.getElementById('videoSelect');
+          select.innerHTML = '';
+          
+          if (data.videos && data.videos.length > 0) {
+            data.videos.forEach(video => {
+              const option = document.createElement('option');
+              option.value = video;
+              option.textContent = video;
+              select.appendChild(option);
+            });
+            // Auto-select first video
+            select.value = data.videos[0];
+            updateVideoSource();
+          } else {
+            select.innerHTML = '<option value="">No videos available</option>';
+          }
+        } catch (error) {
+          console.error('Error loading videos:', error);
+        }
+      }
+
+      // Update video source when selection changes
+      function updateVideoSource() {
+        const select = document.getElementById('videoSelect');
+        const video = document.getElementById('videoPlayer');
+        const source = video.querySelector('source');
+        
+        if (select.value) {
+          source.src = `/video?file=${encodeURIComponent(select.value)}`;
+          video.load();
+        }
+      }
+
+      // Handle video upload
+      document.getElementById('uploadForm').addEventListener('submit', async (e) => {
+        e.preventDefault();
+        
+        const fileInput = document.getElementById('videoFile');
+        const uploadBtn = document.getElementById('uploadBtn');
+        const statusDiv = document.getElementById('uploadStatus');
+        
+        if (!fileInput.files[0]) {
+          statusDiv.innerHTML = '<div class="status error">Please select a video file</div>';
+          return;
+        }
+
+        const formData = new FormData();
+        formData.append('video', fileInput.files[0]);
+
+        uploadBtn.disabled = true;
+        uploadBtn.textContent = 'Uploading...';
+        statusDiv.innerHTML = '<div class="status loading">Uploading video...</div>';
+
+        try {
+          const response = await fetch('/upload', {
+            method: 'POST',
+            body: formData
+          });
+
+          const result = await response.json();
+          
+          if (response.ok) {
+            statusDiv.innerHTML = `<div class="status success">${result.message}: ${result.filename}</div>`;
+            fileInput.value = '';
+            // Reload video list
+            await loadVideos();
+          } else {
+            statusDiv.innerHTML = `<div class="status error">Error: ${result.error}</div>`;
+          }
+        } catch (error) {
+          statusDiv.innerHTML = '<div class="status error">Upload failed. Please try again.</div>';
+        } finally {
+          uploadBtn.disabled = false;
+          uploadBtn.textContent = 'Upload Video';
+        }
+      });
+
+      // Handle video selection change
+      document.getElementById('videoSelect').addEventListener('change', updateVideoSource);
+
+      // Load videos on page load
+      loadVideos();
+    </script>
   </body>
 </html>
