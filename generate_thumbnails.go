@@ -5,6 +5,7 @@ package main
 
 import (
 	"fmt"
+	"math/rand"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,8 +14,13 @@ import (
 )
 
 func main() {
+	// Seed random number generator for varied thumbnail positions
+	rand.Seed(time.Now().UnixNano())
+
 	fmt.Println("🎬 GoVid Thumbnail Generator")
 	fmt.Println("=============================")
+	fmt.Println("🎲 Generating random intro frames (0-10 seconds)")
+	fmt.Println()
 
 	// Check if videos directory exists
 	if _, err := os.Stat("videos"); os.IsNotExist(err) {
@@ -85,11 +91,17 @@ func main() {
 			continue
 		}
 
-		// Generate thumbnail using ffmpeg
+		// Generate random timestamp between 0 and 10 seconds for intro section
+		randomSeconds := rand.Float64() * 10.0
+		timestamp := fmt.Sprintf("%.2f", randomSeconds)
+
+		fmt.Printf("   🎲 Extracting frame at %s seconds...\n", timestamp)
+
+		// Generate thumbnail using ffmpeg with random timestamp
 		startTime := time.Now()
 		cmd := exec.Command("ffmpeg",
 			"-i", videoPath,
-			"-ss", "00:00:01",
+			"-ss", timestamp,
 			"-vframes", "1",
 			"-q:v", "2",
 			"-y", // Overwrite output files
@@ -127,5 +139,6 @@ func main() {
 		os.Exit(1)
 	} else {
 		fmt.Println("\n🎉 All thumbnails generated successfully!")
+		fmt.Println("🎲 Each thumbnail shows a random frame from the intro section!")
 	}
 }
