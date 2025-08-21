@@ -1,10 +1,12 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -13,15 +15,75 @@ import (
 )
 
 func main() {
+	// Parse command line flags
+	generateThumbnails := flag.Bool("generate-thumbnails", false, "Generate thumbnails for all existing videos")
+	flag.Parse()
+
+	if *generateThumbnails {
+		generateAllThumbnails()
+		return
+	}
+
 	r := gin.Default()
 	r.StaticFile("/", "./static/index.html")
 	r.Static("/static", "./static")
+	r.Static("/thumbnails", "./thumbnails")
 	r.GET("/video", streamVideo)
 	r.POST("/upload", uploadVideo)
 	r.GET("/videos", listVideos)
+	r.GET("/thumbnail/:filename", generateThumbnail)
 	fmt.Println("Server started at http://localhost:8080")
 	fmt.Println("Upload videos at http://localhost:8080")
 	r.Run(":8080")
+}
+
+func generateAllThumbnails() {
+	fmt.Println("Generating thumbnails for all existing videos...")
+
+	// Create thumbnails directory if it doesn't exist
+	if err := os.MkdirAll("thumbnails", 0755); err != nil {
+		fmt.Printf("Failed to create thumbnails directory: %v\n", err)
+		return
+	}
+
+	// Read videos directory
+	files, err := os.ReadDir("videos")
+	if err != nil {
+		fmt.Printf("Failed to read videos directory: %v\n", err)
+		return
+	}
+
+	// Process each video file
+	for _, file := range files {
+		if !file.IsDir() {
+			filename := file.Name()
+			ext := strings.ToLower(filepath.Ext(filename))
+
+			// Check if it's a video file
+			if ext == ".mp4" || ext == ".avi" || ext == ".mov" || ext == ".mkv" || ext == ".webm" {
+				videoPath := filepath.Join("videos", filename)
+				thumbnailPath := filepath.Join("thumbnails", strings.TrimSuffix(filename, ext)+".jpg")
+
+				// Check if thumbnail already exists
+				if _, err := os.Stat(thumbnailPath); err == nil {
+					fmt.Printf("Thumbnail already exists for: %s\n", filename)
+					continue
+				}
+
+				fmt.Printf("Generating thumbnail for: %s\n", filename)
+
+				// Generate thumbnail using ffmpeg
+				cmd := exec.Command("ffmpeg", "-i", videoPath, "-ss", "00:00:01", "-vframes", "1", "-q:v", "2", thumbnailPath)
+				if err := cmd.Run(); err != nil {
+					fmt.Printf("Failed to generate thumbnail for %s: %v\n", filename, err)
+				} else {
+					fmt.Printf("✓ Generated thumbnail for: %s\n", filename)
+				}
+			}
+		}
+	}
+
+	fmt.Println("\nThumbnail generation complete!")
 }
 
 func streamVideo(c *gin.Context) {
@@ -149,6 +211,20 @@ func uploadVideo(c *gin.Context) {
 		return
 	}
 
+	// Generate thumbnail for the uploaded video
+	go func() {
+		thumbnailPath := filepath.Join("thumbnails", strings.TrimSuffix(header.Filename, filepath.Ext(header.Filename))+".jpg")
+
+		// Create thumbnails directory if it doesn't exist
+		if err := os.MkdirAll("thumbnails", 0755); err != nil {
+			return
+		}
+
+		// Generate thumbnail using ffmpeg
+		cmd := exec.Command("ffmpeg", "-i", filename, "-ss", "00:00:01", "-vframes", "1", "-q:v", "2", thumbnailPath)
+		cmd.Run() // Run in background, don't wait for completion
+	}()
+
 	c.JSON(http.StatusOK, gin.H{
 		"message":  "Video uploaded successfully",
 		"filename": header.Filename,
@@ -173,4 +249,47 @@ func listVideos(c *gin.Context) {
 	}
 
 	c.JSON(http.StatusOK, gin.H{"videos": videoFiles})
+}
+
+func generateThumbnail(c *gin.Context) {
+	filename := c.Param("filename")
+
+	// Sanitize filename to prevent directory traversal
+	if strings.Contains(filename, "..") || strings.Contains(filename, "/") {
+		c.String(http.StatusBadRequest, "Invalid filename")
+		return
+	}
+
+	videoPath := filepath.Join("videos", filename)
+	thumbnailPath := filepath.Join("thumbnails", strings.TrimSuffix(filename, filepath.Ext(filename))+".jpg")
+
+	// Check if thumbnail already exists
+	if _, err := os.Stat(thumbnailPath); err == nil {
+		// Thumbnail exists, serve it
+		c.File(thumbnailPath)
+		return
+	}
+
+	// Create thumbnails directory if it doesn't exist
+	if err := os.MkdirAll("thumbnails", 0755); err != nil {
+		c.String(http.StatusInternalServerError, "Failed to create thumbnails directory")
+		return
+	}
+
+	// Check if video file exists
+	if _, err := os.Stat(videoPath); os.IsNotExist(err) {
+		c.String(http.StatusNotFound, "Video file not found")
+		return
+	}
+
+	// Generate thumbnail using ffmpeg
+	cmd := exec.Command("ffmpeg", "-i", videoPath, "-ss", "00:00:01", "-vframes", "1", "-q:v", "2", thumbnailPath)
+	if err := cmd.Run(); err != nil {
+		// If ffmpeg fails, serve a default thumbnail
+		c.String(http.StatusInternalServerError, "Failed to generate thumbnail")
+		return
+	}
+
+	// Serve the generated thumbnail
+	c.File(thumbnailPath)
 }

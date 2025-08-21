@@ -97,26 +97,36 @@
         justify-content: center;
         position: relative;
         overflow: hidden;
+        background-size: cover;
+        background-position: center;
+        background-repeat: no-repeat;
+      }
+      .video-thumbnail img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        display: none;
+      }
+      .video-thumbnail.loaded img {
+        display: block;
+      }
+      .video-thumbnail.loaded::before {
+        display: none;
       }
       .video-thumbnail::before {
         content: '▶';
         font-size: 48px;
         color: white;
         text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        z-index: 1;
       }
-      .video-thumbnail::after {
-        content: '';
-        position: absolute;
-        top: 0;
-        left: 0;
-        right: 0;
-        bottom: 0;
-        background: linear-gradient(45deg, transparent 30%, rgba(255,255,255,0.1) 50%, transparent 70%);
-        animation: shimmer 2s infinite;
+      .video-thumbnail.loading::before {
+        content: '⏳';
+        animation: pulse 1.5s infinite;
       }
-      @keyframes shimmer {
-        0% { transform: translateX(-100%); }
-        100% { transform: translateX(100%); }
+      @keyframes pulse {
+        0%, 100% { opacity: 1; }
+        50% { opacity: 0.5; }
       }
       .video-info {
         padding: 15px;
@@ -278,12 +288,25 @@
         const displayName = videoName.length > 30 ? videoName.substring(0, 30) + '...' : videoName;
         
         card.innerHTML = `
-          <div class="video-thumbnail"></div>
+          <div class="video-thumbnail loading">
+            <img src="" alt="${videoName}" onload="this.parentElement.classList.add('loaded')" onerror="this.parentElement.classList.remove('loading')">
+          </div>
           <div class="video-info">
             <div class="video-title">${displayName}</div>
             <div class="video-duration">${ext} • ${formatFileSize(videoName)}</div>
           </div>
         `;
+        
+        // Load the thumbnail
+        const thumbnail = card.querySelector('.video-thumbnail img');
+        thumbnail.src = `/thumbnail/${encodeURIComponent(videoName)}`;
+        
+        // Handle thumbnail load errors
+        thumbnail.onerror = function() {
+          const thumbnailDiv = this.parentElement;
+          thumbnailDiv.classList.remove('loading');
+          // Keep the default play button icon if thumbnail fails to load
+        };
         
         return card;
       }
